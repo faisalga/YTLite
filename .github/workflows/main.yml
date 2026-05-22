@@ -1,3 +1,4 @@
+# auto: enabled for fork via custom branch
 name: Create YouTube Plus app
 
 on:
