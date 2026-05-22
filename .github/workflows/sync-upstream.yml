@@ -1,0 +1,92 @@
+name: Sync upstream into main + open issue if custom needs rebase
+
+on:
+  schedule:
+    - cron: '0 8 * * *'   # daily at 08:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout custom (for this workflow file)
+        uses: actions/checkout@v4
+        with:
+          ref: custom
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/dayanch96/YTLite.git
+          git fetch upstream main
+          echo "UPSTREAM_SHA=$(git rev-parse upstream/main)" >> $GITHUB_ENV
+
+      - name: Mirror upstream/main into our main (force)
+        run: |
+          git fetch origin main
+          OUR_SHA=$(git rev-parse origin/main)
+          echo "OUR_MAIN_SHA=$OUR_SHA" >> $GITHUB_ENV
+          if [ "$OUR_SHA" = "$UPSTREAM_SHA" ]; then
+            echo "main already in sync with upstream/main ($OUR_SHA). Nothing to do."
+            echo "MAIN_CHANGED=false" >> $GITHUB_ENV
+          else
+            git push --force https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} upstream/main:main
+            echo "Fast-forwarded main from $OUR_SHA -> $UPSTREAM_SHA"
+            echo "MAIN_CHANGED=true" >> $GITHUB_ENV
+          fi
+
+      - name: Check if custom needs rebase
+        if: env.MAIN_CHANGED == 'true'
+        id: rebase_check
+        run: |
+          git checkout custom
+          # Dry-run rebase to see if there would be conflicts
+          if git rebase --quiet upstream/main 2>/dev/null; then
+            echo "Rebase clean."
+            echo "REBASE_STATUS=clean" >> $GITHUB_ENV
+            git push --force https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} custom
+          else
+            git rebase --abort || true
+            echo "Rebase would conflict; needs manual resolution."
+            echo "REBASE_STATUS=conflict" >> $GITHUB_ENV
+          fi
+
+      - name: Open issue on conflict
+        if: env.MAIN_CHANGED == 'true' && env.REBASE_STATUS == 'conflict'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const upstream = process.env.UPSTREAM_SHA.slice(0, 7);
+            const ourOld   = process.env.OUR_MAIN_SHA.slice(0, 7);
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Upstream sync: rebase needed (${ourOld} -> ${upstream})`,
+              body: `Upstream YTLite advanced to \`${upstream}\` and \`main\` was fast-forwarded. Rebasing \`custom\` onto the new \`main\` would conflict.
+
+Manual steps:
+\`\`\`
+git fetch origin
+git checkout custom
+git rebase origin/main
+# resolve conflicts, then:
+git push --force
+\`\`\``,
+              labels: ['upstream-sync']
+            });
+
+      - name: Summary
+        run: |
+          echo "### YTLite upstream sync" >> $GITHUB_STEP_SUMMARY
+          echo "- Upstream HEAD: \`${UPSTREAM_SHA:0:7}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- main: \`${OUR_MAIN_SHA:0:7}\` -> \`${UPSTREAM_SHA:0:7}\` (${MAIN_CHANGED})" >> $GITHUB_STEP_SUMMARY
+          echo "- custom rebase: ${REBASE_STATUS:-N/A (no upstream changes)}" >> $GITHUB_STEP_SUMMARY
