@@ -127,9 +127,11 @@ jobs:
           # and we need to clone protobuf. Then symlink all three to the parent of the workspace.
           PARENT="$(dirname "$GITHUB_WORKSPACE")"
 
-          # Sparse-checkout protobuf's objectivec/ subdir to keep download small (~30MB vs ~500MB full)
-          if [ ! -d "$THEOS/include/protobuf" ]; then
-            # Pin to v21.12 — newer protobuf removed GPBUnknownFieldSet which YTNativeShare.x still uses.
+          # Sparse-checkout protobuf's objectivec/ subdir, pinned to v21.12 (newer protobuf
+          # removed GPBUnknownFieldSet.h which YTNativeShare.x still uses).
+          # Check for the specific header to handle stale cached clones from prior runs.
+          if [ ! -f "$THEOS/include/protobuf/objectivec/GPBUnknownFieldSet.h" ]; then
+            rm -rf "$THEOS/include/protobuf"
             git clone --quiet -n --depth=1 --filter=tree:0 --branch v21.12 https://github.com/protocolbuffers/protobuf.git "$THEOS/include/protobuf"
             (cd "$THEOS/include/protobuf" && git sparse-checkout set --no-cone objectivec && git checkout)
           fi
