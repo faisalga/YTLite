@@ -120,14 +120,24 @@ jobs:
             cd $THEOS/include && git clone --quiet --depth=1 https://github.com/PoomSmart/PSHeader.git
           fi
 
-      - name: Prepare sibling YouTubeHeader/PSHeader dirs (source uses ../YouTubeHeader/ style imports)
+      - name: Prepare sibling YouTubeHeader/PSHeader/protobuf dirs (source uses ../<dep>/ style imports)
         run: |
-          # YTLite's source uses '#import "../YouTubeHeader/X.h"' which expects sibling-to-workspace layout.
-          # CI clones them to $THEOS/include/. Symlink to the parent of the workspace.
+          # YTLite source uses '#import "../YouTubeHeader/X.h"' and '#import "../protobuf/objectivec/X.h"'
+          # which expect sibling-to-workspace layout. CI clones YouTubeHeader/PSHeader to $THEOS/include/
+          # and we need to clone protobuf. Then symlink all three to the parent of the workspace.
           PARENT="$(dirname "$GITHUB_WORKSPACE")"
+
+          # Sparse-checkout protobuf's objectivec/ subdir to keep download small (~30MB vs ~500MB full)
+          if [ ! -d "$THEOS/include/protobuf" ]; then
+            git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/protocolbuffers/protobuf.git "$THEOS/include/protobuf"
+            (cd "$THEOS/include/protobuf" && git sparse-checkout set --no-cone objectivec && git checkout)
+          fi
+
           ln -sfn "$THEOS/include/YouTubeHeader" "$PARENT/YouTubeHeader"
           ln -sfn "$THEOS/include/PSHeader" "$PARENT/PSHeader"
+          ln -sfn "$THEOS/include/protobuf" "$PARENT/protobuf"
           ls -la "$PARENT/"
+          ls -la "$PARENT/protobuf/objectivec/" 2>/dev/null | head -10
 
       - name: Build YTLite from source (paywall-free)
         run: |
