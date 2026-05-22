@@ -129,7 +129,8 @@ jobs:
 
           # Sparse-checkout protobuf's objectivec/ subdir to keep download small (~30MB vs ~500MB full)
           if [ ! -d "$THEOS/include/protobuf" ]; then
-            git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/protocolbuffers/protobuf.git "$THEOS/include/protobuf"
+            # Pin to v21.12 — newer protobuf removed GPBUnknownFieldSet which YTNativeShare.x still uses.
+            git clone --quiet -n --depth=1 --filter=tree:0 --branch v21.12 https://github.com/protocolbuffers/protobuf.git "$THEOS/include/protobuf"
             (cd "$THEOS/include/protobuf" && git sparse-checkout set --no-cone objectivec && git checkout)
           fi
 
