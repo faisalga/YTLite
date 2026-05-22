@@ -120,6 +120,15 @@ jobs:
             cd $THEOS/include && git clone --quiet --depth=1 https://github.com/PoomSmart/PSHeader.git
           fi
 
+      - name: Prepare sibling YouTubeHeader/PSHeader dirs (source uses ../YouTubeHeader/ style imports)
+        run: |
+          # YTLite's source uses '#import "../YouTubeHeader/X.h"' which expects sibling-to-workspace layout.
+          # CI clones them to $THEOS/include/. Symlink to the parent of the workspace.
+          PARENT="$(dirname "$GITHUB_WORKSPACE")"
+          ln -sfn "$THEOS/include/YouTubeHeader" "$PARENT/YouTubeHeader"
+          ln -sfn "$THEOS/include/PSHeader" "$PARENT/PSHeader"
+          ls -la "$PARENT/"
+
       - name: Build YTLite from source (paywall-free)
         run: |
           # Compile YTLite .x sources from the checked-out repo using theos
