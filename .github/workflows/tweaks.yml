@@ -83,6 +83,23 @@ jobs:
           git checkout
           mv *.sdk $THEOS/sdks
 
+      - name: Create roothide.h stub
+        run: |
+          mkdir -p $THEOS/include
+          cat > $THEOS/include/roothide.h <<'STUB_EOF'
+          // Stub for sideload/CI builds.
+          // The public YTLite source #imports <roothide.h> which only exists in
+          // RootHide jailbreak SDKs. For sideload builds, jbroot()/rootfs() should
+          // pass paths through unchanged.
+          #ifndef _ROOTHIDE_H_STUB
+          #define _ROOTHIDE_H_STUB
+          #define jbroot(path) (path)
+          #define rootfs(path) (path)
+          #endif
+          STUB_EOF
+          echo "--- roothide.h stub written: ---"
+          cat $THEOS/include/roothide.h
+
       - name: Clone YouTubeHeader
         run: |
           if [ -d "$THEOS/include/YouTubeHeader" ]; then
