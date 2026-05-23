@@ -1,0 +1,9 @@
+Package: com.faisalga.ytlbypass
+Name: YTLBypass
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: Defangs YTLite 5.2.x runtime paywall validation.
+Maintainer: faisalga
+Author: faisalga
+Section: Tweaks
+Depends: mobilesubstrate
