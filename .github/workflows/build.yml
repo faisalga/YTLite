@@ -120,6 +120,9 @@ jobs:
       - name: Inject tweaks into IPA
         run: |
           tweaks="ytplus.deb OpenYoutubeSafariExtension.appex"
+          # YTLite.bundle holds settings UI localizations / icons / audio. Without it,
+          # the YTLite settings panel renders raw L10n keys and is essentially unusable.
+          [ -d "YTLite.bundle" ] && tweaks="$tweaks YTLite.bundle"
           for f in *.deb; do
             [ -f "$f" ] && tweaks="$tweaks $f"
           done
