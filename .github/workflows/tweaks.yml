@@ -104,6 +104,22 @@ jobs:
             exit 1
           fi
 
+      - name: Extract YTLite.bundle from the downloaded deb (settings UI resources)
+        run: |
+          # cyan extracts the .dylib from a .deb but doesn't carry bundle resources.
+          # Extract YTLite.bundle (localizations, icons, audio) so cyan can inject it.
+          # Without this the YTLite settings UI renders raw L10n keys.
+          mkdir -p /tmp/ytl_deb_extract
+          (cd /tmp/ytl_deb_extract && ar -x "$GITHUB_WORKSPACE/ytplus.deb" && tar -xf data.tar*)
+          if [ -d "/tmp/ytl_deb_extract/Library/Application Support/YTLite.bundle" ]; then
+            cp -r "/tmp/ytl_deb_extract/Library/Application Support/YTLite.bundle" "$GITHUB_WORKSPACE/YTLite.bundle"
+            echo "Extracted YTLite.bundle for cyan injection:"
+            ls "$GITHUB_WORKSPACE/YTLite.bundle/" | head -10
+          else
+            echo "::warning::YTLite.bundle not found in paid deb"
+            find /tmp/ytl_deb_extract -name "*.bundle" -type d 2>/dev/null | head
+          fi
+
       # ----------------------------------------------------------------
       # Build YTLBypass — our paywall-disabling tweak. Compiles
       # bypass/Tweak.x against PoomSmart's YouTubeHeader for class refs.
