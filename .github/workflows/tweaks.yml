@@ -59,7 +59,7 @@ jobs:
         id: theos
         uses: actions/cache@v5
         env:
-          cache-name: theos_cache_9bc7340
+          cache-name: theos_cache_9bc7340_v2
         with:
           path: theos/
           key: ${{ env.cache-name }}
@@ -83,24 +83,32 @@ jobs:
           git checkout
           mv *.sdk $THEOS/sdks
 
-      - name: Create roothide.h stub
+      # ----------------------------------------------------------------
+      # Get the paid YTLite .deb (full feature set, contains paywall).
+      # Our YTLBypass tweak (built next) disables the runtime gating.
+      # ----------------------------------------------------------------
+      - name: Download YouTube Plus (paid .deb — full features)
+        if: ${{ inputs.tweak_version != '' }}
         run: |
-          mkdir -p $THEOS/include
-          cat > $THEOS/include/roothide.h <<'STUB_EOF'
-          // Stub for sideload/CI builds.
-          // The public YTLite source #imports <roothide.h> which only exists in
-          // RootHide jailbreak SDKs. For sideload builds, jbroot()/rootfs() should
-          // pass paths through unchanged.
-          #ifndef _ROOTHIDE_H_STUB
-          #define _ROOTHIDE_H_STUB
-          #define jbroot(path) (path)
-          #define rootfs(path) (path)
-          #endif
-          STUB_EOF
-          echo "--- roothide.h stub written: ---"
-          cat $THEOS/include/roothide.h
+          deb_url="https://github.com/dayanch96/YTLite/releases/download/v${{ inputs.tweak_version }}/com.dvntm.ytlite_${{ inputs.tweak_version }}_iphoneos-arm.deb"
+          wget "$deb_url" --no-verbose -O ytplus.deb
+          ls -la ytplus.deb
 
-      - name: Clone YouTubeHeader
+      - name: Download YouTube Plus (by URL — beta override)
+        if: ${{ inputs.tweak_url != '' }}
+        run: |
+          wget "${{ inputs.tweak_url }}" --no-verbose -O ytplus.deb
+          file_type=$(file --mime-type -b ytplus.deb)
+          if [[ "$file_type" != "application/vnd.debian.binary-package" ]]; then
+            echo "::error::Validation failed: not a valid DEB. Detected: $file_type"
+            exit 1
+          fi
+
+      # ----------------------------------------------------------------
+      # Build YTLBypass — our paywall-disabling tweak. Compiles
+      # bypass/Tweak.x against PoomSmart's YouTubeHeader for class refs.
+      # ----------------------------------------------------------------
+      - name: Clone YouTubeHeader (used by YTLBypass + integration tweaks)
         run: |
           if [ -d "$THEOS/include/YouTubeHeader" ]; then
             cd $THEOS/include/YouTubeHeader && git pull
@@ -112,7 +120,7 @@ jobs:
             cp -r "$THEOS/include/YouTubeHeader" "$THEOS/include/YTHeaders"
           fi
 
-      - name: Clone PSHeader
+      - name: Clone PSHeader (used by some integration tweaks)
         run: |
           if [ -d "$THEOS/include/PSHeader" ]; then
             cd $THEOS/include/PSHeader && git pull
@@ -120,61 +128,24 @@ jobs:
             cd $THEOS/include && git clone --quiet --depth=1 https://github.com/PoomSmart/PSHeader.git
           fi
 
-      - name: Prepare sibling YouTubeHeader/PSHeader/protobuf dirs (source uses ../<dep>/ style imports)
+      - name: Build YTLBypass (paywall-disabling sibling tweak)
         run: |
-          # YTLite source uses '#import "../YouTubeHeader/X.h"' and '#import "../protobuf/objectivec/X.h"'
-          # which expect sibling-to-workspace layout. CI clones YouTubeHeader/PSHeader to $THEOS/include/
-          # and we need to clone protobuf. Then symlink all three to the parent of the workspace.
-          PARENT="$(dirname "$GITHUB_WORKSPACE")"
-
-          # Sparse-checkout protobuf's objectivec/ subdir, pinned to v21.12 (newer protobuf
-          # removed GPBUnknownFieldSet.h which YTNativeShare.x still uses).
-          # Check for the specific header to handle stale cached clones from prior runs.
-          if [ ! -f "$THEOS/include/protobuf/objectivec/GPBUnknownFieldSet.h" ]; then
-            rm -rf "$THEOS/include/protobuf"
-            git clone --quiet -n --depth=1 --filter=tree:0 --branch v21.12 https://github.com/protocolbuffers/protobuf.git "$THEOS/include/protobuf"
-            (cd "$THEOS/include/protobuf" && git sparse-checkout set --no-cone objectivec && git checkout)
-          fi
-
-          ln -sfn "$THEOS/include/YouTubeHeader" "$PARENT/YouTubeHeader"
-          ln -sfn "$THEOS/include/PSHeader" "$PARENT/PSHeader"
-          ln -sfn "$THEOS/include/protobuf" "$PARENT/protobuf"
-          ls -la "$PARENT/"
-          ls -la "$PARENT/protobuf/objectivec/" 2>/dev/null | head -10
-
-      - name: Build YTLite from source (paywall-free)
-        run: |
-          # Compile YTLite .x sources from the checked-out repo using theos
+          cd bypass
           make clean package DEBUG=0 FINALPACKAGE=1
-          # The Makefile puts the .deb in packages/
           ls -la packages/
-          # Pick the arm (not arm64/arm64e) since main.yml expects iphoneos-arm
           DEB=$(ls packages/*iphoneos-arm.deb 2>/dev/null | head -1)
+          if [ -z "$DEB" ]; then DEB=$(ls packages/*.deb | head -1); fi
           if [ -z "$DEB" ]; then
-            DEB=$(ls packages/*.deb | head -1)
-          fi
-          if [ -z "$DEB" ]; then
-            echo "::error::No .deb produced by 'make package'"
+            echo "::error::YTLBypass: no .deb produced"
             exit 1
           fi
-          cp "$DEB" "$GITHUB_WORKSPACE/ytplus.deb"
-          echo "Built YTLite from source: $DEB -> ytplus.deb"
+          cp "$DEB" "$GITHUB_WORKSPACE/ytlbypass.deb"
+          echo "Built YTLBypass: $DEB -> ytlbypass.deb"
 
-          # Extract YTLite.bundle (resources/localizations/icons) from the deb so cyan
-          # can inject it into the IPA. cyan extracts the .dylib from .deb but does NOT
-          # carry the bundle resources — without these the settings UI shows raw keys
-          # and is unusable.
-          mkdir -p /tmp/ytl_deb_extract
-          (cd /tmp/ytl_deb_extract && ar -x "$GITHUB_WORKSPACE/ytplus.deb" && tar -xf data.tar*)
-          if [ -d "/tmp/ytl_deb_extract/Library/Application Support/YTLite.bundle" ]; then
-            cp -r "/tmp/ytl_deb_extract/Library/Application Support/YTLite.bundle" "$GITHUB_WORKSPACE/YTLite.bundle"
-            echo "Extracted YTLite.bundle to \$GITHUB_WORKSPACE/ for cyan to inject:"
-            ls -la "$GITHUB_WORKSPACE/YTLite.bundle/" | head -10
-          else
-            echo "::warning::YTLite.bundle not found inside source-built deb — layout/ may not have been packaged"
-            find /tmp/ytl_deb_extract -name "*.bundle" -o -name "YTLite.bundle" 2>/dev/null | head
-          fi
-
+      # ----------------------------------------------------------------
+      # Optional integration tweaks (PoomSmart's open-source ones).
+      # These are built from source on each run.
+      # ----------------------------------------------------------------
       - name: Clone YouPiP
         if: ${{ inputs.enable_youpip }}
         run: git clone --quiet --depth=1 https://github.com/PoomSmart/YouPiP.git
@@ -270,6 +241,5 @@ jobs:
           path: |
             *.deb
             *.appex
-            YTLite.bundle/**
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 1
